@@ -1,0 +1,1 @@
+isLabel assumes everything beggining with '.' is an assembler directive
