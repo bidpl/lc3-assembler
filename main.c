@@ -1,13 +1,17 @@
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 void cleanLine(char *buff);
 
 char isInstr(char *input);
 
-const char checklist[17][5] = {"ADD", "AND", "BR", "JMP", "JSR", "JSRR", "LD", "LDI", "LDR", "LEA", "NOT", "RET", "RTI", "ST", "STI", "STR", "TRAP"};
+char beginWithList(char *input, char *checklist[], int checklistLen);
 
-const char TRAPV[6][6] = {"GETC", "OUT", "PUTS", "IN", "PUTSP", "HALT"};
+const char *INSTR[] = {"BR", "ADD", "LD", "ST", "JSR", "AND", "LDR", "STR", "RTI", "NOT", "LDI", "STI", "JMP", "RET", "LEA", "TRAP", "JSRR"};
+
+const char *TRAPV[] = {"GETC", "OUT", "PUTS", "IN", "PUTSP", "HALT"};
+const char *ASMDIR[] = {".ORIG", ".FILL", ".BLKW", ".STRINGZ", ".END"};
 
 int main(int argc, char *argv[]) {
     FILE *fp;
@@ -64,7 +68,7 @@ int main(int argc, char *argv[]) {
 
         // Append buffer to file if not blank
         if(buff[0] != 0xA){
-            printf("%s", buff);
+            printf("%d: %s", isInstr(buff), buff);
             fputs(buff, wfp);
         }  
     }
@@ -109,7 +113,7 @@ void cleanLine(char *line) {
                 lastSpace = 0;
             }
 
-            line[lineCounter] = line[i];
+            line[lineCounter] = toupper(line[i]);
             lineCounter++;
         }
     }
@@ -125,20 +129,84 @@ void cleanLine(char *line) {
     // *line = instruction;
 }
 
+
 // Input: *char input
 // Return:
-// 0 if label
-// 1 if instruction
-// 2 if trap assembler instruction
-// 3 if assembler directive
+// -1 if label
+// 0x00-0x0f if instruction (return opcode)
+// 0x20-0x25 if trap assembler instruction (return the trap vector)
+// 0x10-0x14 if assembler directive (.ORIG = x10, .FILL = x11, .BLKW = x12, .STRINGZ = x13, .END = x14)
 char isInstr(char *input) {
-    if(input[0] == '.') {
-        return 3;
+    char tempChar = beginWithList(input, INSTR, sizeof(INSTR)/sizeof(INSTR[0]));
+
+    if(tempChar != -1) {
+        return tempChar;
     }
 
-    for(int i = 0; i < sizeof(checklist); i++){
+    tempChar = beginWithList(input, TRAPV, sizeof(TRAPV)/sizeof(TRAPV[0]));
 
+    if(tempChar != -1) {
+        return tempChar + 0x20;
     }
 
-    return 0;
+    tempChar = beginWithList(input, ASMDIR, sizeof(ASMDIR)/sizeof(ASMDIR[0]));
+
+    if(tempChar != -1) {
+        return tempChar + 0x10;
+    }
+
+    return -1;
+}
+
+/* @brief beginWithList: Takes a string and an array of lists. Checks if there is an element of array that starts the string (element of array is prefix of string).
+ * @param input String to check
+ * @param checklist Array of prefix strings
+ * @return index of first prefix match, -1 if null checklist or no match
+ */
+
+char beginWithList(char *input, char *checklist[], int checklistLen) {
+    // Check if checklist is null
+    if(checklist == 0) {
+        return -1;
+    }
+
+    for(int i = 0; i < checklistLen; i++){
+        char charPos = 0;
+        char matchInstr = 1;
+
+        // For every character in the instruction name
+        while(checklist[i][charPos] != 0) {
+            // Check if corresponding character in input doesn't match or is null
+            if(input[charPos] == 0 || input[charPos] != checklist[i][charPos]) {
+                matchInstr = 0;
+                break;
+            } else {
+                charPos++;
+            }
+        }
+
+        //Make sure that there is space or end of line after matching string
+        // Hardcode edge case for BR, very bad practice (ruins this function for other uses)
+        if(matchInstr && strcmp(checklist[i], "BR") == 0){
+            matchInstr = 0;
+
+            for(int j = 0; j < 4; j++) {
+                if(input[charPos + j] == ' ' || input[charPos + j] == 0xA){
+                    matchInstr = 1;
+                    break;
+                } else if(!(input[charPos + j] == 'N' || input[charPos + j] == 'Z' || input[charPos + j] == 'P')) {
+                    break;
+                }
+            }
+
+        } else if( !(input[charPos] == ' ' || input[charPos] == 0xA) ){
+            matchInstr = 0;
+        }
+
+        if(matchInstr) {
+            return i;
+        }
+    }
+
+    return -1;
 }
