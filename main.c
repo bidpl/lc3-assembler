@@ -2,16 +2,24 @@
 #include <string.h>
 #include <ctype.h>
 
+int addLabel(char* labelName, int addr);
+
 void cleanLine(char *buff);
 
 char isInstr(char *input);
 
 char beginWithList(char *input, const char *checklist[], int checklistLen);
 
+int parseNum(char *input, int *parsedNum);
+
 const char *INSTR[] = {"BR", "ADD", "LD", "ST", "JSR", "AND", "LDR", "STR", "RTI", "NOT", "LDI", "STI", "JMP", "RET", "LEA", "TRAP", "JSRR"};
 
 const char *TRAPV[] = {"GETC", "OUT", "PUTS", "IN", "PUTSP", "HALT"};
 const char *ASMDIR[] = {".ORIG", ".FILL", ".BLKW", ".STRINGZ", ".END"};
+
+char *labels[255];
+int label_addrs[255];
+int nextLabel = 0;
 
 int main(int argc, char *argv[]) {
     FILE *fp;
@@ -66,25 +74,72 @@ int main(int argc, char *argv[]) {
 
         cleanLine(buff);
 
+        int instructionID = isInstr(buff);
+
         // Append buffer to file if not blank
-        if(buff[0] != 0xA){
-            printf("%d: %s", isInstr(buff), buff);
+        if(buff[0] != 0xA && buff[0] != 0){
+            printf("%d: %s", instructionID, buff);
             fputs(buff, wfp);
-        }  
+        }
+
+        // Stop at .END directive
+        if(instructionID == 20) {
+            break;
+        }
     }
 
     fclose(fp);
     fclose(wfp);
 
+// Start Symbol Table generation
     fp = fopen("factorial.asm2", "r");
 
-    // Go through each line and check if it has a label
     int lineNumber = 0;
-    char currentLine[255];
+
+    // Read first line
+    fgets(buff, 255, fp);
+    
+    // Make sure program starts with .ORIG
+    if(isInstr(buff) != 16) {
+        printf("Program doesn't start with .ORIG directive.\n");
+        return -1;
+    } else {
+        char startAddrStr[10];
+        char dummy[1];
+        int numRead = sscanf(buff, "%*s%s%1s", startAddrStr, dummy);
+
+        if(numRead == 0) {
+            printf(".ORIG has no start address");
+        } else if(numRead > 2) {
+            printf("Too many arguments to .ORIG");
+        }
+
+        //TODO implement getting start addr
+        numRead = parseNum(startAddrStr, &lineNumber);
+        if(numRead != 0) {
+            printf("Bad .ORIG start address");
+            return 1;
+        }
+    }
+
+    // Go through each line and generate symbol table  
+    
     while(!feof(fp)){
+        // Get next line
         fgets(buff, 255, fp);
 
-        
+        char firstArg[100];
+        sscanf(buff, "%s", firstArg);
+
+        //TODO implement .STRINGZ and .BLKW fill
+
+        // If line starts with label
+        if(isInstr(buff) == -1) {
+            //TODO fix problem with strcpy in addLabel() throwing seg fault
+            //addLabel(firstArg, lineNumber);
+        }
+
+        lineNumber++;
     }
 
     return 0;
@@ -98,7 +153,8 @@ void cleanLine(char *line) {
     int lineCounter = 0;
     short lastSpace = 1;
 
-    for(int i = 0; i < strlen(line); i++) {
+    // Loop through every character in the line but the last character (newline)
+    for(int i = 0; i < strlen(line) - 1; i++) {
         if(line[i] == ';') {
             break;
         } if((line[i] == ' ' && lastSpace) || (line[i] == 0x9 /*Tab character*/)) {
@@ -127,13 +183,19 @@ void cleanLine(char *line) {
     char buff2[255];
     int numArgs = sscanf(line, "%s %s", buff1, buff2);
 
-    //Add newline if not a lone label (at least 2 args, or doesn't begin with label)
+    //Add newline if not a lone label (at least 2 args, or doesn't begin with label), space if lone label
     if(numArgs == 2 || isInstr(line) != -1) {
-        line[lineCounter] = 0xA; // Add newline 
+        line[lineCounter] = '\n'; // Add newline
+    } else if(numArgs == 1) {
+        line[lineCounter] = ' '; // Add space
+    } else if(numArgs == -1) {
+        line[lineCounter] = 0;
     }
 
-    
     line[lineCounter+1] = 0; // Add null terminating character
+
+    
+    
 
     // *line = instruction;
 }
@@ -218,4 +280,53 @@ char beginWithList(char *input, const char *checklist[], int checklistLen) {
     }
 
     return -1;
+}
+
+/* @brief addLabel: Takes a label (String) and lc3 memory address (int). Adds it to symbol table
+ * @param labelName name of label
+ * @param addr LC3 memory address to be associated with label
+ * @return 0 if sucess, 1 if label was already taken
+ */
+
+int addLabel(char* labelName, int addr) {
+    // TODO check if label already defined
+    if(0) {
+        return 1;
+    }
+
+    // Add label and addr to symbol table
+    strcpy(labels[nextLabel], labelName);
+    label_addrs[nextLabel] = addr;
+
+    // Increment next index location
+    nextLabel++;
+    
+    return 0;
+}
+
+/* @brief parseNum: Takes an LC3 formatted literal number and returns it as int
+ * @param input Literal input as string
+ * @param parsedNum pointer to output variable
+ * @return 0 for sucess, 1 for fail
+ */
+int parseNum(char *input, int *parsedNum) {
+    int numRead;
+    char dummy;
+    //Check if dec (#) or hex (X)
+    if(input[0] == '#'){
+        numRead = sscanf(input, "%*c%d%1s", parsedNum, &dummy);
+    } else if(input[0] == 'X') {
+        numRead = sscanf(input, "%*c%X%1s", parsedNum, &dummy); 
+    } else {
+        //Does not start with valid base marker
+        return 1;
+    }
+
+    if(numRead != 1) {
+        //Either no number or too many inputs
+        //e.g. "x" or "x400 123"
+        return 1;
+    }
+
+    return 0;
 }
