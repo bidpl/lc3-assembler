@@ -6,7 +6,7 @@ void cleanLine(char *buff);
 
 char isInstr(char *input);
 
-char beginWithList(char *input, char *checklist[], int checklistLen);
+char beginWithList(char *input, const char *checklist[], int checklistLen);
 
 const char *INSTR[] = {"BR", "ADD", "LD", "ST", "JSR", "AND", "LDR", "STR", "RTI", "NOT", "LDI", "STI", "JMP", "RET", "LEA", "TRAP", "JSRR"};
 
@@ -101,7 +101,7 @@ void cleanLine(char *line) {
     for(int i = 0; i < strlen(line); i++) {
         if(line[i] == ';') {
             break;
-        } if((line[i] == ' ' && lastSpace) || (line[i] == 0x9 /*Tab character*/) ) {
+        } if((line[i] == ' ' && lastSpace) || (line[i] == 0x9 /*Tab character*/)) {
             continue;
         } if(line[i] == 0x9 /*Tab character*/) {
             line[lineCounter] = ' ';
@@ -123,7 +123,16 @@ void cleanLine(char *line) {
         lineCounter--;
     }
 
-    line[lineCounter] = 0xA; // Add newline 
+    char buff1[255];
+    char buff2[255];
+    int numArgs = sscanf(line, "%s %s", buff1, buff2);
+
+    //Add newline if not a lone label (at least 2 args, or doesn't begin with label)
+    if(numArgs == 2 || isInstr(line) != -1) {
+        line[lineCounter] = 0xA; // Add newline 
+    }
+
+    
     line[lineCounter+1] = 0; // Add null terminating character
 
     // *line = instruction;
@@ -164,15 +173,15 @@ char isInstr(char *input) {
  * @return index of first prefix match, -1 if null checklist or no match
  */
 
-char beginWithList(char *input, char *checklist[], int checklistLen) {
+char beginWithList(char *input, const char *checklist[], int checklistLen) {
     // Check if checklist is null
     if(checklist == 0) {
         return -1;
     }
 
     for(int i = 0; i < checklistLen; i++){
-        char charPos = 0;
-        char matchInstr = 1;
+        int charPos = 0;
+        int matchInstr = 1;
 
         // For every character in the instruction name
         while(checklist[i][charPos] != 0) {
