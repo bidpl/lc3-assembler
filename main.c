@@ -17,6 +17,7 @@ const char *INSTR[] = {"BR", "ADD", "LD", "ST", "JSR", "AND", "LDR", "STR", "RTI
 const char *TRAPV[] = {"GETC", "OUT", "PUTS", "IN", "PUTSP", "HALT"};
 const char *ASMDIR[] = {".ORIG", ".FILL", ".BLKW", ".STRINGZ", ".END"};
 
+//Symbol table implementation (BSed a map by using 2 arrays, we love O(n) access times). Hopefully good enough for these small usecases.
 char *labels[255];
 int label_addrs[255];
 int nextLabel = 0;
@@ -78,7 +79,7 @@ int main(int argc, char *argv[]) {
 
         // Append buffer to file if not blank
         if(buff[0] != 0xA && buff[0] != 0){
-            printf("%d: %s", instructionID, buff);
+            printf("%2d: %s", instructionID, buff);
             fputs(buff, wfp);
         }
 
@@ -99,23 +100,26 @@ int main(int argc, char *argv[]) {
     // Read first line
     fgets(buff, 255, fp);
     
-    // Make sure program starts with .ORIG
+    // Make sure first line is .ORIG directive
     if(isInstr(buff) != 16) {
         printf("Program doesn't start with .ORIG directive.\n");
         return -1;
     } else {
+        // Read start address
         char startAddrStr[10];
         char dummy[1];
         int numRead = sscanf(buff, "%*s%s%1s", startAddrStr, dummy);
 
+        // Check if .ORIG has exactly 1 input
         if(numRead == 0) {
             printf(".ORIG has no start address");
         } else if(numRead > 2) {
             printf("Too many arguments to .ORIG");
         }
 
-        //TODO implement getting start addr
+        // Convert input address to int value, store into lineNumber
         numRead = parseNum(startAddrStr, &lineNumber);
+        // Check for sucessful conversion
         if(numRead != 0) {
             printf("Bad .ORIG start address");
             return 1;
@@ -128,18 +132,23 @@ int main(int argc, char *argv[]) {
         // Get next line
         fgets(buff, 255, fp);
 
-        char firstArg[100];
-        sscanf(buff, "%s", firstArg);
-
         //TODO implement .STRINGZ and .BLKW fill
 
         // If line starts with label
         if(isInstr(buff) == -1) {
             //TODO fix problem with strcpy in addLabel() throwing seg fault
-            //addLabel(firstArg, lineNumber);
+            char temp[25];
+            sscanf(buff, "%s", temp);
+            addLabel(temp, lineNumber);
         }
 
         lineNumber++;
+    }
+
+    //Print symbol table
+    printf("\n\n\nSymbol Table\n----------------\n");
+    for(int i = 0; i < nextLabel; i++) {
+        printf("%15s: x%x\n", labels[i], label_addrs[i]);
     }
 
     return 0;
@@ -295,7 +304,9 @@ int addLabel(char* labelName, int addr) {
     }
 
     // Add label and addr to symbol table
+    labels[nextLabel] = (char *)malloc(strlen(labelName) * sizeof(char)); // Nervous laugher I hope i don't mem leak here
     strcpy(labels[nextLabel], labelName);
+
     label_addrs[nextLabel] = addr;
 
     // Increment next index location
