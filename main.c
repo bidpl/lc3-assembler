@@ -84,6 +84,13 @@ int main(int argc, char *argv[]) {
     while(!feof(fp)){
         fgets(buff, 255, fp);
 
+        // // Debug
+        // if(buff[5] == 'v'){
+        //     fclose(fp);
+        //     fclose(wfp);
+        //     return 0;
+        // }
+
         cleanLine(buff);
 
         int instructionID = getOpcode(buff);
@@ -143,17 +150,25 @@ int main(int argc, char *argv[]) {
         // Get next line
         fgets(buff, 255, fp);
 
-        //TODO implement .STRINGZ and .BLKW fill
-
+        
+        
         // If line starts with label
         if(getOpcode(buff) == -1) {
-            //TODO fix problem with strcpy in addLabel() throwing seg fault
+            //Add it to symbol tabel
             char temp[25];
             sscanf(buff, "%s", temp);
             addLabel(temp, lineNumber);
         }
 
-        lineNumber++;
+        // Check if .BLKW or .STRINGZ and increment memory address based on that
+        int numMem; // Number of memory locations needed if .BLKW or .STRINGZ
+        int parseRet = parseInstr(buff, &numMem, 0);
+
+        if(parseRet == -2 || parseRet == -3) {
+            lineNumber += numMem;
+        } else {
+            lineNumber++;
+        }
     }
 
    fclose(fp);
@@ -168,7 +183,7 @@ int main(int argc, char *argv[]) {
     
     for(int i = 0; i < nextLabel; i++) {
         //Write symbol to .sym file
-        fprintf(wfp, "//\t%-16s  %x\n", labels[i], label_addrs[i]);
+        fprintf(wfp, "//\t%-16s  %X\n", labels[i], label_addrs[i]);
     }
     //Addition newline at end to match lc3as's .sym format
     fprintf(wfp, "\n");
@@ -188,7 +203,7 @@ int main(int argc, char *argv[]) {
     sscanf(buff, "%*s%s", startAddrStr);
     parseNum(startAddrStr, &lineNumber);
 
-    fprintf(wfp, "Testing the output obj file, File start at x%x\n", lineNumber);
+    fprintf(wfp, "File start: x%x\n", lineNumber);
 
     while(!feof(fp) && getOpcode(buff) != 0x14){
         int instrBuff;
@@ -215,7 +230,16 @@ int main(int argc, char *argv[]) {
 
             // Increment address counter (-1 since there is a lineNumber++ after the if)
             lineNumber += instrBuff - 1;
-        }else {
+        } else if(parseRet == -2) {
+            // Encountered a .STRINGZ
+            //TODO replace dummy chars with actual characters
+            for(int i = 0; i < instrBuff - 1; i++) {
+                fprintf(wfp, "%x\n", 0x41);
+            }
+
+            // Store the null terminating character
+            fprintf(wfp, "%x\n", 0x00);
+        } else {
             //TODO make better error
             printf("Some instruction didn't parse\n");
             fclose(fp);
@@ -244,10 +268,11 @@ void cleanLine(char *line) {
     for(int i = 0; i < strlen(line) - 1; i++) {
         if(line[i] == ';') {
             break;
-        } if((line[i] == ' ' && lastSpace) || (line[i] == 0x9 /*Tab character*/)) {
+        } else if((line[i] == ' ' && lastSpace) || (line[i] == 0x9 && lastSpace/*Tab character*/)) {
             continue;
-        } if(line[i] == 0x9 /*Tab character*/) {
+        } else if(line[i] == 0x9 /*Tab character*/) {
             line[lineCounter] = ' ';
+            lastSpace = 1;
             lineCounter++;
         } else {
             if(line[i] == ' ' || line[i] ==',') {
@@ -261,8 +286,14 @@ void cleanLine(char *line) {
         }
     }
 
+    // If empty line or all ';'s
+    if(lineCounter == 0) {
+        line[lineCounter] = 0;
+    }
+
     //If last character in line is space, overwrite it later
     if(lineCounter >= 1 && (line[lineCounter-1] == ' ' || line[lineCounter-1] == 0xA)){
+        line[lineCounter] = 0;
         lineCounter--;
     }
 
@@ -271,12 +302,12 @@ void cleanLine(char *line) {
     int numArgs = sscanf(line, "%s %s", buff1, buff2);
 
     //Add newline if not a lone label (at least 2 args, or doesn't begin with label), space if lone label
+    line[lineCounter] = '\n';
+    line[lineCounter+1] = 0;
     if(numArgs == 2 || getOpcode(line) != -1) {
         line[lineCounter] = '\n'; // Add newline
     } else if(numArgs == 1) {
         line[lineCounter] = ' '; // Add space
-    } else if(numArgs == -1) {
-        line[lineCounter] = 0;
     }
 
     line[lineCounter+1] = 0; // Add null terminating character
@@ -288,13 +319,17 @@ void cleanLine(char *line) {
 // Input: *char input
 // Return:
 // -1 if label
-// 0x00-0x0f if instruction (return opcode)
+// 0x00-0x0f, 0x1f (JSRR) if instruction (return opcode)
 // 0x20-0x25 if trap assembler instruction (return the trap vector)
 // 0x10-0x14 if assembler directive (.ORIG = x10, .FILL = x11, .BLKW = x12, .STRINGZ = x13, .END = x14)
 char getOpcode(char *input) {
     char tempChar = beginWithList(input, INSTR, sizeof(INSTR)/sizeof(INSTR[0]));
 
     if(tempChar != -1) {
+        // Special case for JSRR
+        if(tempChar == 0x10) {
+            return 0x1f;
+        }
         return tempChar;
     }
 
@@ -556,8 +591,6 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
                 return 2;
             }
 
-            *output = *output;
-
             return 0;
         // x12 = .BLKW
         case 0x12:
@@ -569,6 +602,13 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
 
             return -2;
         // x13 = .STRINGZ
+        case 0x13:
+            if(operands[0] != '"' || operands[strlen(operands)-1] != '"') {
+                return 2;
+            }
+
+            *output = strlen(operands) - 1; // Get rid of the 2 "s but sapce for \0 
+            return -3;
         // x14 = .END
         case 0x14:
             return -1;
@@ -580,16 +620,53 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
         //Temp code TODO implement
         if(opcode == 0) {
             //BR instruction
-
-            
             parseOperands(output, operands, 1, currentAddr, 9);
-            //TODO set NZP
-        
-        } else if(opcode == 1) {
-            //TODO check for parseOperands return val
-            parseOperands(output, operands, 3, currentAddr, 5);
-        } else if(opcode == 2) {
+            //If "BR" (equivilant to BRnzp)
+            if(strlen(arguments[0]) == 2) {
+                *output |= 0xE00;
+            } else {
+                for(int i = 2; i < strlen(arguments[0]); i++) {
+                    if(arguments[0][i] == 'N') {
+                        *output |= 0x800;
+                    } else if(arguments[0][i] == 'Z') {
+                        *output |= 0x400;
+                    } else if(arguments[0][i] == 'P') {
+                        *output |= 0x200;
+                    }
+                }
+            }
+        } else if(opcode == 1 || opcode == 5) {
+            // ADD and AND instructions
+            if(parseOperands(output, operands, 3, currentAddr, 5) == 0) {
+                // If imm ADD, set bit [5] to 1
+                *output |= 0b100000;
+            }
+        } else if(opcode == 2  || opcode == 3 || opcode == 0xa || opcode == 0xb || opcode == 0xe) {
+            // LD, ST, LDI, STI instructions
             parseOperands(output, operands, 2, currentAddr, 9);
+        } else if(opcode == 4) {
+            // JSR instruction
+            parseOperands(output, operands, 1, currentAddr, 11);
+            // Set 11th bit to 1 (MSB after opcode)
+            *output |= 0x800;
+        } else if(opcode == 6 || opcode == 7) {
+            // LDR, STR instructions
+            parseOperands(output, operands, 3, currentAddr, 9);
+        } else if(opcode == 0x9) {
+            // NOT instruction
+            if(parseOperands(output, operands, 2, currentAddr, 0) != -1) {
+                // Make sure both operands are registers
+                return 2;
+            }
+
+            //Set 6 LSB to 1 since format is 1001 DR SR 111111
+            *output |= 0b111111;
+        } else if(opcode == 0xc) {
+            // JMP instruction
+            parseOperands(output, operands, 1, currentAddr, 0);
+        } else if(opcode == 0xf) {
+            // TRAP instruction
+            parseOperands(output, operands, 1, currentAddr, 8);
         }
         
         // Keep only lower 12 bits, upper ones should not be used yet
@@ -597,6 +674,15 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
         // Write the opcode (bits 16-13)
         *output |= opcode << 12;
 
+        return 0;
+    } if(opcode == 0x1f) {
+        //JSRR
+        *output = 0;
+        parseOperands(output, operands, 1, currentAddr, 0);
+        // Keep only lower 12 bits, upper ones should not be used yet
+        *output &= 0xFFF;
+        // Write the opcode (bits 16-13)
+        *output |= 0x4 << 12;
         return 0;
     }
 
@@ -611,7 +697,7 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
  *         2 for illegal operand (invalid register, imm when expected register, etc)
  *         3 if incorrect # of operands
  *         4 for invalid inputs (should never happen)
- *        -1 if 1 operand and it's a register (usually 1 operand expects imm value)
+ *        -1 if all operands are registers (usually expect last to be imm)
  */
 
 int parseOperands(int *output, char *operands, int numOperands, int currentAddr, int immLen) {
@@ -667,7 +753,7 @@ int parseOperands(int *output, char *operands, int numOperands, int currentAddr,
             }
 
             // Check for imm size TODO check that I have correct checker
-            if(offset < -1 << (immLen - 1) || offset > 1 << (immLen - 1) -1) {
+            if(offset < -1 << (immLen - 1) || offset > 1 << ((immLen - 1) -1)) {
                 return 1;
             }
 
@@ -681,9 +767,135 @@ int parseOperands(int *output, char *operands, int numOperands, int currentAddr,
             return 0;
         }
     } else if(numOperands == 2) {
+        int regNum;
 
+        // Read first operand
+        int retVal = parseRegister(vals[0], &regNum);
+        
+        // Expect first operand to always be register for 2 operands 
+        if(retVal != 0) {
+            return 2;
+        }
+
+        // Write register (DR/SR) to bits [11:9]
+        *output |= regNum << 9;
+
+        // Read second operand
+        retVal = parseRegister(vals[1], &regNum);
+
+        
+        if(retVal == 0) {
+            // If second operand is also reg, write that to bits [8:6]
+            *output |= regNum << 6;
+            return -1; // All operands registers
+        } else if(retVal == -1) {
+            // If invalid register number, error out
+            return 2; // Illegal operand
+        } else {
+            // If second operand if label/imm
+            // Check if number
+            int offset;
+            int isLabel = parseNum(vals[1], &offset);
+
+            // If it's a label, switch it out
+            if(isLabel) {
+                // Get address of label
+                retVal = getLabel(vals[1], &offset);
+
+                // If not a defined label, return illegal operand
+                if(retVal == 1) {
+                    return 2;
+                }
+
+                // Turn address into offset
+                offset -= (currentAddr + 1);
+            }
+
+            // Check for imm size TODO check that I have correct checker
+            if(offset < -1 << (immLen - 1) || offset > 1 << ((immLen - 1) -1)) {
+                return 1;
+            }
+
+            // Clear out lower bits for imm val (using imm len)
+            *output &= -1 << immLen;
+
+            // Mask lower bits of offset (in case negative) and or it to output
+            // Mask is to creat immLen number of 1s
+            *output |= offset & ((1 << immLen) - 1);
+
+            return 0;
+        }
     } else if(numOperands == 3) {
+        int regNum;
 
+        // Read first operand
+        int retVal = parseRegister(vals[0], &regNum);
+        
+        // Expect first operand to always be register for 2 operands 
+        if(retVal != 0) {
+            return 2;
+        }
+
+        // Write register (DR/SR) to bits [11:9]
+        *output |= regNum << 9;
+
+
+        // Read second operand
+        retVal = parseRegister(vals[1], &regNum);
+        
+        // Expect second operand to always be register for 2 operands 
+        if(retVal != 0) {
+            return 2;
+        }
+
+        // Write register (DR/SR) to bits [11:9]
+        *output |= regNum << 6;
+
+        // Read third operand
+        retVal = parseRegister(vals[2], &regNum);
+
+        
+        if(retVal == 0) {
+            // If second operand is also reg, write that to bits [2:0]
+            *output |= regNum;
+            return -1; // All operands registers
+        } else if(retVal == -1) {
+            // If invalid register number, error out
+            return 2; // Illegal operand
+        } else {
+            // If second operand if label/imm
+            // Check if number
+            int offset;
+            int isLabel = parseNum(vals[1], &offset);
+
+            // If it's a label, switch it out
+            if(isLabel) {
+                // Get address of label
+                retVal = getLabel(vals[1], &offset);
+
+                // If not a defined label, return illegal operand
+                if(retVal == 1) {
+                    return 2;
+                }
+
+                // Turn address into offset
+                offset -= (currentAddr + 1);
+            }
+
+            // Check for imm size TODO check that I have correct checker
+            if(offset < -1 << (immLen - 1) || offset > 1 << ((immLen - 1) -1)) {
+                return 1;
+            }
+
+            // Clear out lower bits for imm val (using imm len)
+            *output &= -1 << immLen;
+
+            // Mask lower bits of offset (in case negative) and or it to output
+            // Mask is to creat immLen number of 1s
+            *output |= offset & ((1 << immLen) - 1);
+
+            return 0;
+        }
     } else {
         // Should only have to parse up to 3 
         return 4;
@@ -693,7 +905,7 @@ int parseOperands(int *output, char *operands, int numOperands, int currentAddr,
 }
 
 
-/* @brief parseOperands: Takes null-terminated string and checks if it contains a register name. If so, store it into registerNum 
+/* @brief parseRegister: Takes null-terminated string and checks if it contains a register name. If so, store it into registerNum 
  * @param inputString: String containing register name eg. "R4" Needs to have no leading/trailing whitespace
  * @param registerNum: Where to store register number
  * @return 0 for sucess
@@ -715,7 +927,7 @@ int parseRegister(char *inputString, int *registerNum) {
     // Check that the characters are numbers
     for(int i = 1; i < strlen(inputString); i++) {
         if(!isdigit(inputString[i])) {
-            return -1;
+            return 1;
         }
     }
 

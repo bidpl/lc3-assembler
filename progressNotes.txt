@@ -3,6 +3,20 @@ packaged getOpcodeFromInstr into a function
 Wrote function declaration for parseOperands
 Added support for .BLKW in parseInstr
 
+3/21
+Finished these instructions:
+(1 operand opcodes all done)
+-JMP
+-JSR
+-JSRR
+-TRAP
+-BR
+(2 operand opcodes)
+-LD
+-ST
+-LDI
+-STI
+-NOT
 
 Big TODOs:
 Figure out how to write to binary files
@@ -12,8 +26,12 @@ symbolTable:
 
 finishparseInstr
 -.STRINGZ support
--BR support {nzp} bits
+-Check parseOperands return code (so imm range checking works)
+
 
 finish parseOperands
 -finish parseOperands
--Add support for JMP having lone operand being register
+
+
+Notes:
+I don't really check fot ZEXT/SEXT, might break stuff, might not
