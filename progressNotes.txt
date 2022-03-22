@@ -1,0 +1,19 @@
+3/16
+packaged getOpcodeFromInstr into a function
+Wrote function declaration for parseOperands
+Added support for .BLKW in parseInstr
+
+
+Big TODOs:
+Figure out how to write to binary files
+
+symbolTable:
+-.STRINGZ and .BLKW support
+
+finishparseInstr
+-.STRINGZ support
+-BR support {nzp} bits
+
+finish parseOperands
+-finish parseOperands
+-Add support for JMP having lone operand being register

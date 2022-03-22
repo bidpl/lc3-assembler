@@ -30,6 +30,8 @@ ZERO       .FILL  x0000               ; Can be used to initialize registers
 NEG1       .FILL  xFFFF               ; 2's complement of 1 (i.e. -1)
 RESULT     .FILL  x30FF               ; At program completion, the result is stored here
 
+TEST	   .BLKW  x5
+
 
 .END
 
