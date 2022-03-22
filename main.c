@@ -3,6 +3,9 @@
 #include <ctype.h>
 #include <stdlib.h>
 
+#include <io.h>
+#include <fcntl.h>
+
 int addLabel(char* labelName, int addr);
 
 int getLabel(char* labelName, int *addr);
@@ -195,7 +198,10 @@ int main(int argc, char *argv[]) {
     fp = fopen("factorial.asm2", "r");
     rewind(fp);
     wfp = fopen("factorial.obj", "w+");
+    
     FILE *bfp = fopen("factorial.obj2", "w+");
+    // Set to binary stream mode so windows doesn't do the CR LF bs
+    _setmode(_fileno(bfp), _O_BINARY);
 
     // Get first line (.ORIG), we've already made sure it's a .ORIG statement above
     fgets(buff, 255, fp);
@@ -219,8 +225,8 @@ int main(int argc, char *argv[]) {
         if(parseRet == 0) {
             fprintf(wfp, "%x\n", instrBuff);
 
-            fputc(instrBuff >> 8, bfp);
-            fputc(instrBuff & 0xFF, bfp);
+            fputc((instrBuff >> 8) & 0xFF, bfp);
+            fputc(instrBuff & 0xFF, bfp);     
         } else if(parseRet == -1) {
             // Encountered .END so stop
             printf("Reached .END at mem addr %X\n", lineNumber);
@@ -918,7 +924,7 @@ int parseOperands(int *output, char *operands, int numOperands, int currentAddr,
             }
 
             // Check for imm size TODO check that I have correct checker
-            if(offset < -1 << (immLen - 1) || offset > 1 << ((immLen - 1) -1)) {
+            if((offset < (-1 << (immLen - 1))) || (offset > (1 << (immLen - 1)) - 1)) {
                 return 1;
             }
 
