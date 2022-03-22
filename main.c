@@ -195,6 +195,7 @@ int main(int argc, char *argv[]) {
     fp = fopen("factorial.asm2", "r");
     rewind(fp);
     wfp = fopen("factorial.obj", "w+");
+    FILE *bfp = fopen("factorial.obj2", "w+");
 
     // Get first line (.ORIG), we've already made sure it's a .ORIG statement above
     fgets(buff, 255, fp);
@@ -204,7 +205,9 @@ int main(int argc, char *argv[]) {
     parseNum(startAddrStr, &lineNumber);
 
     fprintf(wfp, "File start: x%x\n", lineNumber);
-
+    fputc(lineNumber >> 8, bfp);
+    fputc(lineNumber & 0xFF, bfp);
+    
     while(!feof(fp) && getOpcode(buff) != 0x14){
         int instrBuff;
 
@@ -215,6 +218,9 @@ int main(int argc, char *argv[]) {
 
         if(parseRet == 0) {
             fprintf(wfp, "%x\n", instrBuff);
+
+            fputc(instrBuff >> 8, bfp);
+            fputc(instrBuff & 0xFF, bfp);
         } else if(parseRet == -1) {
             // Encountered .END so stop
             printf("Reached .END at mem addr %X\n", lineNumber);
@@ -226,24 +232,32 @@ int main(int argc, char *argv[]) {
             for(int i = 0; i < instrBuff; i++) {
                 //TODO change this to 0 when printing bin
                 fprintf(wfp, "x0000\n");
+                fputc(0, bfp);
+                fputc(0, bfp);
             }
 
             // Increment address counter (-1 since there is a lineNumber++ after the if)
             lineNumber += instrBuff - 1;
-        } else if(parseRet == -2) {
+        } else if(parseRet == -3) {
             // Encountered a .STRINGZ
             //TODO replace dummy chars with actual characters
             for(int i = 0; i < instrBuff - 1; i++) {
                 fprintf(wfp, "%x\n", 0x41);
+
+                fputc(0, bfp);
+                fputc('A', bfp);
             }
 
             // Store the null terminating character
             fprintf(wfp, "%x\n", 0x00);
+            fputc(0, bfp);
+            fputc(0, bfp);
         } else {
             //TODO make better error
             printf("Some instruction didn't parse\n");
             fclose(fp);
             fclose(wfp);
+            fclose(bfp);
             return 1;
         }
 
@@ -252,6 +266,7 @@ int main(int argc, char *argv[]) {
 
     fclose(fp);
     fclose(wfp);
+    fclose(bfp);
 
     return 0;
 }
@@ -547,26 +562,38 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
         return 1;
     }
 
-    // Check for correct number of inputs scanned in
-    if(operandsIndex == 2) {
-        // If operands is the 3rd argument, there is a label
-        // This means we expect 2 (instructions w/o operands like RET) or 3 items scanned in
+    // Special checking case if .STRINGZ
+    if(opcode == 0x13) {
+        operands = strchr(instruction, '"');
 
-        if(numRead > 3 || numRead < 2) {
-            return 3;
+        // Make sure there is open quote and last character (before newline) is quote
+        // Technically bad, doesn't check that the first " follows .STRINGZ
+        if(operands == NULL || operands[strlen(operands) - 2] != '"') {
+            return 2;
         }
+
     } else {
-        // Otherwise there is no label
-        // This means we expect 1 (instructions w/o operands like RET) or 2 items scanned in
+        // Check for correct number of inputs scanned in
+        if(operandsIndex == 2) {
+            // If operands is the 3rd argument, there is a label
+            // This means we expect 2 (instructions w/o operands like RET) or 3 items scanned in
 
-        // Technically numRead < 1 will never be hit, it will be caught in getOpcodeFromInstr
-        if(numRead > 2 || numRead < 1) {
-            return 3;
+            if(numRead > 3 || numRead < 2) {
+                return 3;
+            }
+        } else {
+            // Otherwise there is no label
+            // This means we expect 1 (instructions w/o operands like RET) or 2 items scanned in
+
+            // Technically numRead < 1 will never be hit, it will be caught in getOpcodeFromInstr
+            if(numRead > 2 || numRead < 1) {
+                return 3;
+            }
         }
-    }
 
-    // Set operands to correct arg
-    operands = arguments[operandsIndex];
+        // Set operands to correct arg
+        operands = arguments[operandsIndex];
+    }
 
     // Done with inital checks, now starting instruction specific checks/parsing
     //Parse Trap pseudo-instructions
@@ -603,11 +630,12 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
             return -2;
         // x13 = .STRINGZ
         case 0x13:
-            if(operands[0] != '"' || operands[strlen(operands)-1] != '"') {
+            // There will be \n char at end of operands here (due to operands generation above)
+            if(operands[0] != '"' || operands[strlen(operands)-2] != '"') {
                 return 2;
             }
 
-            *output = strlen(operands) - 1; // Get rid of the 2 "s but sapce for \0 
+            *output = strlen(operands) - 2; // Get rid of the 2 "s and \n but space for \0 
             return -3;
         // x14 = .END
         case 0x14:
@@ -637,7 +665,8 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
             }
         } else if(opcode == 1 || opcode == 5) {
             // ADD and AND instructions
-            if(parseOperands(output, operands, 3, currentAddr, 5) == 0) {
+            int retVal = parseOperands(output, operands, 3, currentAddr, 5);
+            if(retVal == 0) {
                 // If imm ADD, set bit [5] to 1
                 *output |= 0b100000;
             }
@@ -664,6 +693,12 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
         } else if(opcode == 0xc) {
             // JMP instruction
             parseOperands(output, operands, 1, currentAddr, 0);
+        } else if(opcode == 0xd) {
+            // RET instruction
+            opcode = 0xc;
+
+            // Hard coded for RET (JMP R7)
+            *output = 0xC1C0;
         } else if(opcode == 0xf) {
             // TRAP instruction
             parseOperands(output, operands, 1, currentAddr, 8);
@@ -866,12 +901,12 @@ int parseOperands(int *output, char *operands, int numOperands, int currentAddr,
             // If second operand if label/imm
             // Check if number
             int offset;
-            int isLabel = parseNum(vals[1], &offset);
+            int isLabel = parseNum(vals[2], &offset);
 
             // If it's a label, switch it out
             if(isLabel) {
                 // Get address of label
-                retVal = getLabel(vals[1], &offset);
+                retVal = getLabel(vals[2], &offset);
 
                 // If not a defined label, return illegal operand
                 if(retVal == 1) {

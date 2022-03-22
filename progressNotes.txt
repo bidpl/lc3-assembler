@@ -35,3 +35,7 @@ finish parseOperands
 
 Notes:
 I don't really check fot ZEXT/SEXT, might break stuff, might not
+
+Binary probles:
+x75 ADD instruction imm not parsed right
+0D values seem to be inserted randomly after ADD R1,R1,R0/before BRNP <label>, check them
