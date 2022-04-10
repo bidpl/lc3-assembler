@@ -97,13 +97,32 @@ int main(int argc, char *argv[]) {
 
     strcpy(lastPeriod, ".obj");
 
+    // Append newline to end of lc3 code, if there is no newline after .END the parser dies
+    fp = fopen(fileName, "a");
+
+    // Check for sucessful file open
+    if(fp == NULL) {
+        printf("File %s does not exist\n", fileName);
+        return 1;
+    }
+
+    fputc('\n', fp);
+    fclose(fp);
+
     // Open files and start generation of clean lc3 file
     fp = fopen(fileName, "r");
     wfp = fopen(cleanedFileName, "w+");
 
     // Go through each line and copy instructions to .asm2 file
     while(!feof(fp)){
+        char buffOverflowed = 0;
+
         fgets(buff, 255, fp);
+
+        // If buff overflows, it's prob
+        if(strstr(buff, "\n") == NULL) {
+            buffOverflowed = 1;
+        }
 
         // // Debug
         // if(buff[5] == 'v'){
@@ -120,6 +139,12 @@ int main(int argc, char *argv[]) {
         if(buff[0] != 0xA && buff[0] != 0){
             printf("%2d: %s", instructionID, buff);
             fputs(buff, wfp);
+        }
+
+        if(buffOverflowed) {
+            do {
+                fgets(buff, 255, fp);
+            } while(strstr(buff, "\n") == NULL);
         }
 
         // Stop at .END directive
