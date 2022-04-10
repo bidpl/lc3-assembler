@@ -213,11 +213,15 @@ int main(int argc, char *argv[]) {
     fprintf(wfp, "File start: x%x\n", lineNumber);
     fputc(lineNumber >> 8, bfp);
     fputc(lineNumber & 0xFF, bfp);
+
+    // Debug var (already read .orig)
+    int lineNum = 1;
     
     while(!feof(fp) && getOpcode(buff) != 0x14){
         int instrBuff;
 
         // Get next line
+        lineNum++; //Debug var
         fgets(buff, 255, fp);
 
         int parseRet = parseInstr(buff, &instrBuff, lineNumber);
@@ -247,6 +251,7 @@ int main(int argc, char *argv[]) {
         } else if(parseRet == -3) {
             // Encountered a .STRINGZ
             //TODO replace dummy chars with actual characters
+            // instrBuff - 1 since don't wanna write null char
             for(int i = 0; i < instrBuff - 1; i++) {
                 fprintf(wfp, "%x\n", 0x41);
 
@@ -258,6 +263,8 @@ int main(int argc, char *argv[]) {
             fprintf(wfp, "%x\n", 0x00);
             fputc(0, bfp);
             fputc(0, bfp);
+
+            lineNumber += instrBuff - 1;
         } else {
             //TODO make better error
             printf("Some instruction didn't parse\n");
@@ -660,11 +667,11 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
                 *output |= 0xE00;
             } else {
                 for(int i = 2; i < strlen(arguments[0]); i++) {
-                    if(arguments[0][i] == 'N') {
+                    if(arguments[operandsIndex-1][i] == 'N') {
                         *output |= 0x800;
-                    } else if(arguments[0][i] == 'Z') {
+                    } else if(arguments[operandsIndex-1][i] == 'Z') {
                         *output |= 0x400;
-                    } else if(arguments[0][i] == 'P') {
+                    } else if(arguments[operandsIndex-1][i] == 'P') {
                         *output |= 0x200;
                     }
                 }
@@ -686,7 +693,7 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
             *output |= 0x800;
         } else if(opcode == 6 || opcode == 7) {
             // LDR, STR instructions
-            parseOperands(output, operands, 3, currentAddr, 9);
+            parseOperands(output, operands, 3, currentAddr, 6);
         } else if(opcode == 0x9) {
             // NOT instruction
             if(parseOperands(output, operands, 2, currentAddr, 0) != -1) {
