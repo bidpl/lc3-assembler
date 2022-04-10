@@ -252,11 +252,13 @@ int main(int argc, char *argv[]) {
             // Encountered a .STRINGZ
             //TODO replace dummy chars with actual characters
             // instrBuff - 1 since don't wanna write null char
+            char *stringzInput = strstr(buff, "\"");
+
             for(int i = 0; i < instrBuff - 1; i++) {
                 fprintf(wfp, "%x\n", 0x41);
 
                 fputc(0, bfp);
-                fputc('A', bfp);
+                fputc(stringzInput[i+1], bfp);
             }
 
             // Store the null terminating character
