@@ -41,8 +41,10 @@ int main(int argc, char *argv[]) {
     FILE *wfp;
     char buff[255];
 
-/*    char fileName[255];
-    char outputName[255];
+    char fileName[255];
+    char cleanedFileName[255];
+    char symbolTableFileName[255];
+    char binaryFileName[255];
     char *ext;
 
 // Get inputfile from command line input
@@ -70,18 +72,34 @@ int main(int argc, char *argv[]) {
         printf("Need .asm file, given %s\n", fileName);
         return 1;
     }
-    
-    strcpy(outputName, fileName);
-    strcat(outputName, "2");
 
+    // Generate cleaned lc3 filename    
+    strcpy(cleanedFileName, fileName);
+    strcat(cleanedFileName, "2");
+
+    // Generate symbol table filename
+    strcpy(symbolTableFileName, fileName);
+
+    char *lastPeriod = strstr(symbolTableFileName, ".");
+    while(strstr(lastPeriod+1, ".") != NULL) {
+        lastPeriod = strstr(lastPeriod+1, ".");
+    }
+
+    strcpy(lastPeriod, ".sym");
+
+    // Generate output binary filename
+    strcpy(binaryFileName, fileName);
+
+    lastPeriod = strstr(binaryFileName, ".");
+    while(strstr(lastPeriod+1, ".") != NULL) {
+        lastPeriod = strstr(lastPeriod+1, ".");
+    }
+
+    strcpy(lastPeriod, ".obj");
+
+    // Open files and start generation of clean lc3 file
     fp = fopen(fileName, "r");
-    wfp = fopen(outputName, "w+");
-
-*/
-////
-
-    fp = fopen("factorial.asm", "r");
-    wfp = fopen("factorial.asm2", "w+");
+    wfp = fopen(cleanedFileName, "w+");
 
     // Go through each line and copy instructions to .asm2 file
     while(!feof(fp)){
@@ -114,7 +132,7 @@ int main(int argc, char *argv[]) {
     fclose(wfp);
 
 // Start Symbol Table generation
-    fp = fopen("factorial.asm2", "r");
+    fp = fopen(cleanedFileName, "r");
 
     int lineNumber = 0;
 
@@ -178,7 +196,7 @@ int main(int argc, char *argv[]) {
 
     //Write symbol table
     //.sym header
-    wfp = fopen("factorial.sym", "w+");
+    wfp = fopen(symbolTableFileName, "w+");
     fputs("// Symbol table\n", wfp);
     fputs("// Scope level 0:\n", wfp);
     fputs("//\tSymbol Name       Page Address\n", wfp);
@@ -195,11 +213,10 @@ int main(int argc, char *argv[]) {
     fclose(wfp);
 
     //Reopen formatted asm file and make .obj file
-    fp = fopen("factorial.asm2", "r");
+    fp = fopen(cleanedFileName, "r");
     rewind(fp);
-    wfp = fopen("factorial.obj", "w+");
     
-    FILE *bfp = fopen("factorial.obj2", "w+");
+    FILE *bfp = fopen(binaryFileName, "w+");
     // Set to binary stream mode so windows doesn't do the CR LF bs
     _setmode(_fileno(bfp), _O_BINARY);
 
@@ -210,7 +227,6 @@ int main(int argc, char *argv[]) {
     sscanf(buff, "%*s%s", startAddrStr);
     parseNum(startAddrStr, &lineNumber);
 
-    fprintf(wfp, "File start: x%x\n", lineNumber);
     fputc(lineNumber >> 8, bfp);
     fputc(lineNumber & 0xFF, bfp);
 
@@ -227,8 +243,6 @@ int main(int argc, char *argv[]) {
         int parseRet = parseInstr(buff, &instrBuff, lineNumber);
 
         if(parseRet == 0) {
-            fprintf(wfp, "%x\n", instrBuff);
-
             fputc((instrBuff >> 8) & 0xFF, bfp);
             fputc(instrBuff & 0xFF, bfp);     
         } else if(parseRet == -1) {
@@ -240,8 +254,6 @@ int main(int argc, char *argv[]) {
 
             // Allocate that many blank words
             for(int i = 0; i < instrBuff; i++) {
-                //TODO change this to 0 when printing bin
-                fprintf(wfp, "x0000\n");
                 fputc(0, bfp);
                 fputc(0, bfp);
             }
@@ -255,14 +267,11 @@ int main(int argc, char *argv[]) {
             char *stringzInput = strstr(buff, "\"");
 
             for(int i = 0; i < instrBuff - 1; i++) {
-                fprintf(wfp, "%x\n", 0x41);
-
                 fputc(0, bfp);
                 fputc(stringzInput[i+1], bfp);
             }
 
             // Store the null terminating character
-            fprintf(wfp, "%x\n", 0x00);
             fputc(0, bfp);
             fputc(0, bfp);
 
@@ -271,7 +280,6 @@ int main(int argc, char *argv[]) {
             //TODO make better error
             printf("Some instruction didn't parse\n");
             fclose(fp);
-            fclose(wfp);
             fclose(bfp);
             return 1;
         }
@@ -294,6 +302,8 @@ void cleanLine(char *line) {
     int lineCounter = 0;
     short lastSpace = 1;
 
+    char inStringLit = 0; // boolean to show if current in a string (e.g. .STRINGZ "test string")
+
     // Loop through every character in the line but the last character (newline)
     for(int i = 0; i < strlen(line) - 1; i++) {
         if(line[i] == ';') {
@@ -311,7 +321,17 @@ void cleanLine(char *line) {
                 lastSpace = 0;
             }
 
-            line[lineCounter] = toupper(line[i]);
+            // Stop capitalizing in strings
+            if(line[i] == '\"') {
+                inStringLit = !inStringLit;
+            }
+
+            if(inStringLit) {
+                line[lineCounter] = line[i];
+            } else {
+                line[lineCounter] = toupper(line[i]);
+            }
+          
             lineCounter++;
         }
     }
@@ -456,7 +476,7 @@ char beginWithList(char *input, const char *checklist[], int checklistLen) {
                 if(input[charPos + j] == ' ' || input[charPos + j] == 0xA){
                     matchInstr = 1;
                     break;
-                } else if(!(input[charPos + j] == 'N' || input[charPos + j] == 'Z' || input[charPos + j] == 'P')) {
+                } else if(!(toupper(input[charPos + j]) == 'N' || toupper(input[charPos + j]) == 'Z' || toupper(input[charPos + j]) == 'P')) {
                     break;
                 }
             }
@@ -526,7 +546,7 @@ int parseNum(char *input, int *parsedNum) {
     //Check if dec (#) or hex (X), read input based on that
     if(input[0] == '#'){
         numRead = sscanf(input, "%*c%d%1s", parsedNum, &dummy);
-    } else if(input[0] == 'X') {
+    } else if(toupper(input[0]) == 'X') {
         numRead = sscanf(input, "%*c%X%1s", parsedNum, &dummy); 
     } else {
         //Does not start with valid base marker
@@ -669,13 +689,27 @@ int parseInstr(char *instruction, int *output, int currentAddr) {
                 *output |= 0xE00;
             } else {
                 for(int i = 2; i < strlen(arguments[0]); i++) {
-                    if(arguments[operandsIndex-1][i] == 'N') {
-                        *output |= 0x800;
-                    } else if(arguments[operandsIndex-1][i] == 'Z') {
-                        *output |= 0x400;
-                    } else if(arguments[operandsIndex-1][i] == 'P') {
-                        *output |= 0x200;
+                    switch (toupper(arguments[operandsIndex-1][i])) {
+                        case 'N':
+                            *output |= 0x800;
+                            break;
+                        case 'Z':
+                            *output |= 0x400;
+                            break;
+                        case 'P':
+                            *output |= 0x200;
+                        
+                        default:
+                            break;
                     }
+
+                    // if(arguments[operandsIndex-1][i] == 'N') {
+                    //     *output |= 0x800;
+                    // } else if(arguments[operandsIndex-1][i] == 'Z') {
+                    //     *output |= 0x400;
+                    // } else if(arguments[operandsIndex-1][i] == 'P') {
+                    //     *output |= 0x200;
+                    // }
                 }
             }
         } else if(opcode == 1 || opcode == 5) {
