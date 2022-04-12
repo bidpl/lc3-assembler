@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 int main() {
-    FILE *fp1 = fopen("factorial.obj2","r");
+    FILE *fp1 = fopen("factorial.obj","r");
     FILE *fp2 = fopen("prog2.obj","r");
 
     int byteNum = 0;
