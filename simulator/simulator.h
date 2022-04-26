@@ -9,8 +9,11 @@ typedef struct{
     //Symbol table
 } CPU;
 
-CPU * createCPU();
+CPU * create_CPU();
 
-void destroyCPU();
+void destroy_CPU();
 
-int loadBinary(char* filename);
+int load_binary(CPU* cpu, char* filename);
+
+int parse_filename(char* filename, char* bin_filename, char* sym_filename);
+__UINT16_TYPE__ le_to_be(__UINT16_TYPE__ input);
