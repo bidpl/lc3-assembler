@@ -43,6 +43,16 @@ int main(int argc, char *argv[]) {
             load_binary(lc3cpu, option1);
             continue;
 
+        } else if(strcmp(command, "break") == 0 || strcmp(command, "b") == 0) {
+            // printf("Breakpoint management");
+            if(strcmp(option1, "list") == 0) {
+                for(int i = 0; i < lc3cpu->bIndex; i++) {
+                    printf("%02d: %04X   ", i, lc3cpu->breakpoints[i]);
+                    print_instr(lc3cpu, lc3cpu->breakpoints[i]);
+                }
+            }
+
+        
         } else if(strcmp(command, "list") == 0 || strcmp(command, "l") == 0) {
             // printf("List instructions @ PC (defualt), address, or label\n");
             __UINT16_TYPE__ memAddr;
@@ -105,13 +115,62 @@ int main(int argc, char *argv[]) {
                 printf("Could not find label: %s\n", option1);
             }else {
                 printf("%s: x%04X\n", option1, memAddr);
-                dumpMem(lc3cpu, memAddr);
+                printf("x%04X  ", lc3cpu->memory[memAddr]);
+                print_instr(lc3cpu, memAddr);
             }
             
         } else if(strcmp(command, "printregs") == 0 || strcmp(command, "p") == 0) {
             // printf("Print registers and current instruction\n");
             printregs(lc3cpu);
 
+        } else if (strcmp(command, "memory") == 0 || strcmp(command, "m") == 0) {
+            // printf("Set value in memory location\n");
+            __UINT16_TYPE__ memAddr = get_sym_addr(lc3cpu, option1);
+            
+            if(memAddr == 0) {
+                if(sscanf(option1, "%*c %hx", &memAddr) != 1) {
+                    printf("Invalid label/memory address\n");
+                    continue;
+                }
+            }
+
+            __UINT16_TYPE__ value = get_sym_addr(lc3cpu, option2);
+            if(value == 0) {
+                if(option2[0] == '#') {
+                    sscanf(option2+1, "%hd", &value);
+                } else if(option2[0] == 'x' || option2[0] == 'X') {
+                    sscanf(option2+1, "%hx", &value);
+                } else {
+                    printf("Invalid value format\n");
+                    continue;
+                }
+            }
+
+            lc3cpu->memory[memAddr] = value;
+
+        } else if(strcmp(command, "register") == 0 || strcmp(command, "reg") == 0) {
+            // printf("Set value in register");
+            __UINT16_TYPE__ regNum;
+
+            if(option1[0] != 'R' || sscanf(option1+1, "%hd", &regNum) != 1 || regNum >= 8) {
+                printf("Invalid register");
+                continue;
+            }
+
+            __UINT16_TYPE__ value = get_sym_addr(lc3cpu, option2);
+            if(value == 0) {
+                if(option2[0] == '#') {
+                    sscanf(option2+1, "%hd", &value);
+                } else if(option2[0] == 'x' || option2[0] == 'X') {
+                    sscanf(option2+1, "%hx", &value);
+                } else {
+                    printf("Invalid value format\n");
+                    continue;
+                }
+            }
+            
+            lc3cpu->regfile[regNum] = value;
+            continue;
         } else if(strcmp(command, "quit") == 0 || strcmp(command, "q") == 0) {
             printf("Are you sure you want to quit? [y]: ");
             scanf("%s", command);
@@ -147,6 +206,7 @@ CPU * create_CPU(){
         newCPU->regfile[i] = 0;
     }
     newCPU->numSymbols = 0;
+    newCPU->bIndex = 0;
 
     return newCPU;
 }
@@ -207,7 +267,7 @@ int load_binary(CPU* cpu, char* filename){
 
     cpu->PC = readBuff;
     memAddr = readBuff;
-    // printf("Starting at x%04x\n", readBuff);
+    // printf("Starting at x%04X\n", readBuff);
 
     // Keep on reading file and appending to memory;
     while(!feof(bin_fp)) {
@@ -232,7 +292,7 @@ int load_binary(CPU* cpu, char* filename){
         readBuff = le_to_be(readBuff);
         
         // Write word to memory
-        // printf("x%04x: x%04x\n", memAddr, readBuff);
+        // printf("x%04X: x%04X\n", memAddr, readBuff);
         cpu->memory[memAddr] = readBuff;
         memAddr++;
     }
@@ -276,7 +336,7 @@ int load_binary(CPU* cpu, char* filename){
 
     // Debug print symbol table
     // for(int i = 0; i < cpu->numSymbols; i++) {
-    //     printf("%s: %04x\n", cpu->symbols[i], get_sym_addr(cpu, cpu->symbols[i]));
+    //     printf("%s: %04X\n", cpu->symbols[i], get_sym_addr(cpu, cpu->symbols[i]));
     // }
     
     fclose(sym_fp);
@@ -422,7 +482,7 @@ void printregs(CPU* lc3cpu) {
         cc = 'p';
     }
 
-    printf("PC: x%04x   PSR: x%04X  (CC=%c)\n", lc3cpu->PC, PSR, cc);
+    printf("PC: x%04X   PSR: x%04X  (CC=%c)\n", lc3cpu->PC, PSR, cc);
 
     // Print R0-R7
     printf("R0: x%04X   R1: x%04X   R2: x%04X   R3: x%04X   \n", lc3cpu->regfile[0], lc3cpu->regfile[1], lc3cpu->regfile[2], lc3cpu->regfile[3]);
@@ -512,6 +572,40 @@ void print_instr(CPU* lc3cpu, __UINT16_TYPE__ memAddr) {
         return;
     }
 
+    // JMP
+    if(opcode == 0b1100) {
+        // if BaseR == R7
+        if( ((instruction >> 6) & 0b111) == 7 ) {
+            printf("RET\n");
+        } else {
+            printf("JMP R%d\n", (instruction >> 6) & 0b111);
+        }
+
+        return;
+    }
+
+    // JSR / JSRR
+    if(opcode == 0b0100) {
+        // If JSR
+        if(instruction & 0x0800) {
+            __INT16_TYPE__ PCoffset11 = instruction & 0x1FF;
+            // SEXT PCoffset11
+            if(instruction & 0x400) {
+                PCoffset11 |= 0xF800;
+            }
+
+            // Check if there is an associated symbol
+            char* symbol = get_addr_sym(lc3cpu, memAddr + 1 + PCoffset11);
+            if(symbol != NULL) {
+                printf("%s %s\n", INSTR[opcode], symbol);
+            } else {
+                printf("%s #%d", INSTR[opcode], PCoffset11);
+            }
+        } else {
+            printf("JSRR R%d\n", (instruction >> 6) & 0b111);
+        }
+    }
+
     // LD, LDI, LEA, ST, STI
     if(opcode == 0b0010 || opcode == 0b1010 || opcode == 0b1110 || opcode == 0b0011 || opcode == 0b1011) {
         __INT16_TYPE__ PCoffset9 = instruction & 0x1FF;
@@ -529,6 +623,58 @@ void print_instr(CPU* lc3cpu, __UINT16_TYPE__ memAddr) {
         }
 
         printf("\n");
+        return;
+    }
+
+    // LDR/STR
+    if(opcode == 0b0110 || opcode == 0b0111) {
+        __INT16_TYPE__ offset6 = instruction & 0b111111;
+        // SEXT offset6
+        if(instruction & 0x20) {
+            offset6 |= 0xFFC0;
+        }
+
+        printf("%s R%1d, R%1d, #%d\n", INSTR[opcode], (instruction >> 9) & 0b111, (instruction >> 6) & 0b111, offset6);
+        return;
+    }
+
+    // NOT
+    if(opcode == 0b1001) {
+        printf("NOT R%1d, R%1d\n", (instruction >> 9) & 0b111, (instruction >> 6) & 0b111);
+        return;
+    }
+
+    // TRAP
+    if(opcode == 0b1111) {
+        __UINT8_TYPE__ trapV = instruction & 0xFF;
+
+        switch(trapV) {
+            case 0x20:
+                printf("GETC\n");
+                break;
+            case 0x21:
+                printf("OUT\n");
+                break;
+            case 0x22:
+                printf("PUTS\n");
+                break;
+            case 0x23:
+                printf("IN\n");
+                break;
+            case 0x24:
+                printf("HALT\n");
+                break;
+            default:
+                printf("TRAP x%02x\n", trapV);
+                break;
+        }
+
+        return;
+    }
+
+    // RTI
+    if(opcode == 0b1000) {
+        printf("RTI\n");
         return;
     }
 }

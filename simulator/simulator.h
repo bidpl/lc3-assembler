@@ -13,6 +13,8 @@ typedef struct{
 
     char* symbols[MAX_SYMBOLS];
     __UINT16_TYPE__ symAddr[MAX_SYMBOLS];
+    __UINT16_TYPE__ breakpoints[MAX_SYMBOLS];
+    int bIndex;
 } CPU;
 
 CPU * create_CPU();
