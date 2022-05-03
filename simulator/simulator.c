@@ -17,6 +17,7 @@ int main(int argc, char *argv[]) {
     char command[BUFF_LEN];
     char option1[BUFF_LEN];
     char option2[BUFF_LEN];
+    char prevCommand[4];
 
     printf("\n\n===================================\nLC-3 Simulator by Binh-Minh Nguyen \nUIUC ECE220 SP22 Honors Project\nCompiled: %s %s\n===================================\n\n\n", __DATE__, __TIME__);
 
@@ -46,19 +47,6 @@ int main(int argc, char *argv[]) {
         } else if(strcmp(command, "break") == 0 || strcmp(command, "b") == 0) {
             // printf("Breakpoint management");
             if(numRead == 2) {
-                __UINT16_TYPE__ memAddr = get_sym_addr(lc3cpu, option1);
-
-                if(memAddr == 0) {
-                    if(sscanf(option1, "%*c %hx", &memAddr) != 1) {
-                        printf("Invalid label/memory address\n");
-                        continue;
-                    }
-                }
-
-                lc3cpu->breakpoints[lc3cpu->bIndex] = memAddr;
-                lc3cpu->bIndex++;
-                // Print confirmation
-            } else {
                 if(strcmp(option1, "list") == 0) {
                     for(int i = 0; i < lc3cpu->bIndex; i++) {
                         printf("%02d: %04X   ", i, lc3cpu->breakpoints[i]);
@@ -70,13 +58,35 @@ int main(int argc, char *argv[]) {
                     }
 
                     lc3cpu->bIndex = 0;
-                }
-            }  
+                }else {
+                    __UINT16_TYPE__ memAddr = get_sym_addr(lc3cpu, option1);
 
-        
+                    if(memAddr == 0) {
+                        if(sscanf(option1, "%*c %hx", &memAddr) != 1) {
+                            printf("Invalid label/memory address\n");
+                            continue;
+                        }
+                    }
+
+                    lc3cpu->breakpoints[lc3cpu->bIndex] = memAddr;
+                    lc3cpu->bIndex++;
+                    // Print confirmation
+                }
+                
+            } else {printf("Invalid input for breakpoint");}   
+            continue;   
+        } else if(strcmp(command, "continue") == 0 || strcmp(command, "c") == 0) {
+            __UINT16_TYPE__ bPoint;
+            do {
+                runCycle(lc3cpu);
+            } while( !(bPoint = checkBreakPt(lc3cpu)) );
+            printf("Execution hit breakpoint: x%04hX\n", bPoint);
+            printregs(lc3cpu);
+            continue;
         } else if(strcmp(command, "step") == 0 || strcmp(command, "s") == 0){
             runCycle(lc3cpu);
             printregs(lc3cpu);
+            continue;
         } else if(strcmp(command, "list") == 0 || strcmp(command, "l") == 0) {
             // printf("List instructions @ PC (defualt), address, or label\n");
             __UINT16_TYPE__ memAddr;
@@ -806,15 +816,22 @@ void runCycle(CPU* lc3cpu) {
             // TODO implement this, not doing yet since no OS
             __UINT8_TYPE__ trapV = lc3cpu->IR & 0xFF;
             if(trapV == 0x20) {
-                lc3cpu->regfile[0] = getchar();
+                lc3cpu->regfile[0] = getchar(); // Read character
+                
+
+                // Flush buffer, should just be \n
+                char tempBuff[255];
+                gets(tempBuff);
+                
+                
             } else if (trapV == 0x21) {
-                putchar(lc3cpu->regfile[0]);
+                printf("%c", lc3cpu->regfile[0]);
             } else if(trapV == 0x22) {
                 char string[100];
                 
                 int i = 0;
-                while(!(string[i] = lc3cpu->memory[lc3cpu->regfile[0] + i])) {
-
+                while((string[i] = lc3cpu->memory[lc3cpu->regfile[0] + i])) {
+                    i++;
                 }
 
                 printf("%s", string);
@@ -911,4 +928,21 @@ int setCC(CPU* lc3cpu) {
         *PSR |= 0b001;
         return 1;
     }
+}
+
+/**
+ * @brief checkBreakPt: checks if CPU struct hit breakpoint
+ * 
+ * @param lc3cpu 
+ * @return uint8_t address of breakpoint or 0 if not a breakpoint 
+ */
+
+__UINT8_TYPE__ checkBreakPt(CPU* lc3cpu) {
+    for(int i = 0; i < lc3cpu->bIndex; i++) {
+        if(lc3cpu->breakpoints[i] == lc3cpu->PC) {
+            return lc3cpu->breakpoints[i];
+        }
+    }
+
+    return 0;
 }

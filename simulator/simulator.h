@@ -32,3 +32,4 @@ void printregs(CPU* lc3cpu);
 void print_instr(CPU* lc3cpu, __UINT16_TYPE__ memAddr);
 void runCycle(CPU* lc3cpu);
 int setCC(CPU* lc3cpu);
+__UINT8_TYPE__ checkBreakPt(CPU* lc3cpu);
