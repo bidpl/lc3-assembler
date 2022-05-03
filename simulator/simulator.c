@@ -45,14 +45,38 @@ int main(int argc, char *argv[]) {
 
         } else if(strcmp(command, "break") == 0 || strcmp(command, "b") == 0) {
             // printf("Breakpoint management");
-            if(strcmp(option1, "list") == 0) {
-                for(int i = 0; i < lc3cpu->bIndex; i++) {
-                    printf("%02d: %04X   ", i, lc3cpu->breakpoints[i]);
-                    print_instr(lc3cpu, lc3cpu->breakpoints[i]);
+            if(numRead == 2) {
+                __UINT16_TYPE__ memAddr = get_sym_addr(lc3cpu, option1);
+
+                if(memAddr == 0) {
+                    if(sscanf(option1, "%*c %hx", &memAddr) != 1) {
+                        printf("Invalid label/memory address\n");
+                        continue;
+                    }
                 }
-            }
+
+                lc3cpu->breakpoints[lc3cpu->bIndex] = memAddr;
+                lc3cpu->bIndex++;
+                // Print confirmation
+            } else {
+                if(strcmp(option1, "list") == 0) {
+                    for(int i = 0; i < lc3cpu->bIndex; i++) {
+                        printf("%02d: %04X   ", i, lc3cpu->breakpoints[i]);
+                        print_instr(lc3cpu, lc3cpu->breakpoints[i]);
+                    }
+                } else if(strcmp(option1, "clear") == 0) {
+                    for(int i = 0; i < lc3cpu->bIndex; i++) {
+                        lc3cpu->breakpoints[i] = 0;
+                    }
+
+                    lc3cpu->bIndex = 0;
+                }
+            }  
 
         
+        } else if(strcmp(command, "step") == 0 || strcmp(command, "s") == 0){
+            runCycle(lc3cpu);
+            printregs(lc3cpu);
         } else if(strcmp(command, "list") == 0 || strcmp(command, "l") == 0) {
             // printf("List instructions @ PC (defualt), address, or label\n");
             __UINT16_TYPE__ memAddr;
@@ -485,11 +509,11 @@ void printregs(CPU* lc3cpu) {
     printf("PC: x%04X   PSR: x%04X  (CC=%c)\n", lc3cpu->PC, PSR, cc);
 
     // Print R0-R7
-    printf("R0: x%04X   R1: x%04X   R2: x%04X   R3: x%04X   \n", lc3cpu->regfile[0], lc3cpu->regfile[1], lc3cpu->regfile[2], lc3cpu->regfile[3]);
-    printf("R4: x%04X   R4: x%04X   R6: x%04X   R7: x%04X   \n\n", lc3cpu->regfile[4], lc3cpu->regfile[5], lc3cpu->regfile[6], lc3cpu->regfile[7]);
+    printf("R0: x%04hX   R1: x%04hX   R2: x%04hX   R3: x%04hX   \n", lc3cpu->regfile[0], lc3cpu->regfile[1], lc3cpu->regfile[2], lc3cpu->regfile[3]);
+    printf("R4: x%04hX   R5: x%04hX   R6: x%04hX   R7: x%04hX   \n\n", lc3cpu->regfile[4], lc3cpu->regfile[5], lc3cpu->regfile[6], lc3cpu->regfile[7]);
 
     // TODO decode instruction
-    printf("x%04X   ", lc3cpu->PC);
+    printf("x%04hX   ", lc3cpu->PC);
 
     print_instr(lc3cpu, lc3cpu->PC);
 
@@ -676,5 +700,215 @@ void print_instr(CPU* lc3cpu, __UINT16_TYPE__ memAddr) {
     if(opcode == 0b1000) {
         printf("RTI\n");
         return;
+    }
+}
+
+
+/**
+ * @brief runCycle: Runs one cycle (fetch, decode, execute) on an CPU struct
+ * 
+ * @param lc3cpu: pointer to CPU struct
+ * @return nothing
+ */
+
+void runCycle(CPU* lc3cpu) {
+
+    if(lc3cpu == NULL) {
+        printf("Null CPU pointer\n");
+        return;
+    }
+
+    // Fetch
+    lc3cpu->MAR = lc3cpu->PC;
+    lc3cpu->PC++;
+    lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
+    lc3cpu->IR = lc3cpu->MDR;
+
+    // Decode/Execute
+
+    __INT16_TYPE__ PCoffset9 = lc3cpu->IR & 0x1FF;
+    // SEXT PCoffset9
+    if(PCoffset9 & 0x100) {
+        PCoffset9 |= 0xFFFF << 9; // Fill upper bits with ones
+    }
+
+    __INT16_TYPE__ PCoffset11 = lc3cpu->IR & 0x7FF;
+    // SEXT PCoffset11
+    if(PCoffset9 & 0x400) {
+        PCoffset9 |= 0xFFFF << 11; // Fill upper bits with ones
+    }
+
+    __INT16_TYPE__ offset6 = lc3cpu->IR & 0x3F;
+    // SEXT offset6
+    if(offset6 & 0x20) {
+        offset6 |= 0xFFFF << 6;
+    }
+
+    __UINT8_TYPE__ DR = (lc3cpu->IR >> 9) & 0b111;
+
+    // Read opcode and decide execution from there
+    switch(lc3cpu->IR >> 12) {
+        // ADD
+        case 1:
+            // if IR[5], imm5 add, else register add
+            if(lc3cpu->IR & 0b100000) {
+                __INT8_TYPE__ imm5 = lc3cpu->IR & 0b11111;
+
+                // SEXT imm5
+                if(imm5 & 0b10000) {
+                    imm5 |= 0xFF << 5;
+                }
+                lc3cpu->regfile[DR] = lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111] + imm5;
+            } else {
+                lc3cpu->regfile[DR] = lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111] + lc3cpu->regfile[lc3cpu->IR & 0b111];
+            }
+
+            // Set CC
+            setCC(lc3cpu);
+            break;
+        // AND
+        case 5:
+            // if IR[5], imm5 AND, else register AND
+            if(lc3cpu->IR & 0b100000) {
+                __INT16_TYPE__ imm5 = lc3cpu->IR & 0b11111;
+
+                // SEXT imm5
+                if(imm5 & 0b10000) {
+                    imm5 |= 0xFF << 5;
+                }
+                lc3cpu->regfile[DR] = lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111] & imm5;
+            } else {
+                lc3cpu->regfile[DR] = lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111] & lc3cpu->regfile[lc3cpu->IR & 0b111];
+            }
+
+            // Set CC
+            setCC(lc3cpu);
+            break;
+        //BR
+        case 0:
+            // AND CC condition with CC bits
+            if(DR & lc3cpu->memory[0xFFFC] & 0b111) {
+                lc3cpu->PC += PCoffset9;
+            }
+            break;
+        // JMP
+        case 12:
+            lc3cpu->PC = lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111];
+            break;
+        // JSR
+        case 4:
+            
+            lc3cpu->regfile[7] = lc3cpu->PC;
+            lc3cpu->PC += PCoffset11;
+            break;
+        // TRAP
+        case 15:{
+            // TODO implement this, not doing yet since no OS
+            __UINT8_TYPE__ trapV = lc3cpu->IR & 0xFF;
+            if(trapV == 0x20) {
+                lc3cpu->regfile[0] = getchar();
+            } else if (trapV == 0x21) {
+                putchar(lc3cpu->regfile[0]);
+            } else if(trapV == 0x22) {
+                char string[100];
+                
+                int i = 0;
+                while(!(string[i] = lc3cpu->memory[lc3cpu->regfile[0] + i])) {
+
+                }
+
+                printf("%s", string);
+            }
+            break;}
+        // LD
+        case 2:
+            lc3cpu->MAR = lc3cpu->PC + PCoffset9;
+            lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
+            lc3cpu->regfile[DR] = lc3cpu->MDR;
+
+            // Set CC
+            setCC(lc3cpu);
+            break;
+        // LDI
+        case 10:
+            // SEXT PCoffset9
+            if(PCoffset9 & 0x100) {
+                PCoffset9 |= 0xFFFF << 9; // Fill upper bits with ones
+            }
+
+            lc3cpu->MAR = lc3cpu->PC + PCoffset9;
+            lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
+            lc3cpu->MAR = lc3cpu->memory[lc3cpu->MDR];
+            lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
+            lc3cpu->regfile[DR] = lc3cpu->MDR;
+
+            // Set CC
+            setCC(lc3cpu);
+            break;
+        // LDR
+        case 6:
+            lc3cpu->MAR = lc3cpu->regfile[((lc3cpu->IR >> 6) & 0b111) + offset6];
+            lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
+            lc3cpu->regfile[DR] = lc3cpu->MAR;
+
+            // Set CC
+            setCC(lc3cpu);
+            break;
+        // LEA
+        case 14:
+            lc3cpu->regfile[DR] = lc3cpu->PC + PCoffset9;
+            setCC(lc3cpu);
+            break;
+        // NOT
+        case 9:
+            lc3cpu->regfile[DR] = ! (lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111]);
+            setCC(lc3cpu);
+            break;
+        // ST
+        case 3:
+            lc3cpu->MAR = lc3cpu->PC + PCoffset9;
+            lc3cpu->MDR = lc3cpu->regfile[DR];
+            lc3cpu->memory[lc3cpu->MAR] = lc3cpu->MDR;
+            break;
+        // STI
+        case 11:
+            lc3cpu->MAR = lc3cpu->PC + PCoffset9;
+            lc3cpu->MDR = lc3cpu->regfile[DR];
+            lc3cpu->MAR = lc3cpu->MDR;
+            lc3cpu->MDR = lc3cpu->regfile[DR];
+            lc3cpu->memory[lc3cpu->MAR] = lc3cpu->MDR;
+            break;
+        // STR
+        case 7:
+            lc3cpu->MAR = lc3cpu->regfile[((lc3cpu->IR >> 6) & 0b111) + offset6];
+            lc3cpu->MDR = lc3cpu->regfile[(lc3cpu->IR >> 9) & 0b111];
+            lc3cpu->memory[lc3cpu->MAR] = lc3cpu->MDR;
+            break;
+    }
+}
+
+
+/**
+ * @brief setCC: sets CC bits based on DR
+ * 
+ * @param lc3cpu: pointer to CPU struct
+ * @return int current cc (-1 if N, 0 if Z, 1 if P)
+ */
+
+int setCC(CPU* lc3cpu) {
+    __INT16_TYPE__* PSR = &(lc3cpu->memory[0xFFFC]);
+    
+    *PSR &= 0xFFFF << 3; // Clear CC bits
+
+    // Set appropriate CC bit based on DR (IR[11:8])
+    if(lc3cpu->regfile[(lc3cpu->IR >> 9) & 0b111] < 0) {
+        *PSR |= 0b100;
+        return -1;
+    } else if(lc3cpu->regfile[(lc3cpu->IR >> 9) & 0b111] == 0) {
+        *PSR |= 0b010;
+        return 0;
+    } else {
+        *PSR |= 0b001;
+        return 1;
     }
 }
