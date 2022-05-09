@@ -17,6 +17,7 @@ int main(int argc, char *argv[]) {
     char command[BUFF_LEN];
     char option1[BUFF_LEN];
     char option2[BUFF_LEN];
+    char lastFile[BUFF_LEN];
     int numRead;
 
     printf("\n\n===================================\nLC-3 Simulator by Binh-Minh Nguyen \nUIUC ECE220 SP22 Honors Project\nCompiled: %s %s\n===================================\n\n\n", __DATE__, __TIME__);
@@ -30,6 +31,7 @@ int main(int argc, char *argv[]) {
         int i;
         for(i = 1; i < argc; i++ ) {
             load_binary(lc3cpu, argv[i]);
+            strcpy(lastFile, argv[i]);
         }
     }
 
@@ -46,7 +48,10 @@ int main(int argc, char *argv[]) {
         }
 
         if(strcmp(command, "file") == 0 || strcmp(command, "f") == 0) {
-            load_binary(lc3cpu, option1);
+            if( load_binary(lc3cpu, option1) ) {continue;}
+            strcpy(lastFile, option1);
+
+            printf("Loaded file: %s\n\n", option1);
             continue;
 
         } else if(strcmp(command, "break") == 0 || strcmp(command, "b") == 0) {
@@ -92,7 +97,8 @@ int main(int argc, char *argv[]) {
 
             // If Halted
             if(!(lc3cpu->memory[0xFFFE] & 0x8000)) {
-                printf("Machine Halted \n");
+                printf("--- Machine Halted --- \n");
+                printregs(lc3cpu);
                 continue;
             }
 
@@ -122,7 +128,7 @@ int main(int argc, char *argv[]) {
             }
 
             for(int i = 0; i < DUMP_LEN; i++) {
-                printf("x%04X   ", memAddr + i);
+                printf("x%04X:   x%04hX   ", memAddr + i, lc3cpu->memory[memAddr+i]);
 
                 print_instr(lc3cpu, memAddr + i);
             }
@@ -234,6 +240,18 @@ int main(int argc, char *argv[]) {
             }
         } else if(strcmp(command, "q!") == 0) {
             break;
+        } else if(strcmp(command, "reset") == 0) {
+            printf("Reseting simulation... ");
+            
+            destroy_CPU(lc3cpu);
+            lc3cpu = create_CPU();
+            load_binary(lc3cpu, lastFile);
+
+            printf(" Loaded %s\n", lastFile);
+            continue;
+        } else {
+            printf("Did not recognize command: %s\n\n", command);
+            continue;
         }
 
     }
@@ -301,7 +319,7 @@ int load_binary(CPU* cpu, char* filename){
 
     FILE* bin_fp = fopen(bin_filename, "rb");
     if(bin_fp == NULL) {
-        printf("Can't open file: %s\n", bin_filename);
+        printf("Can't open file: %s\n\n", bin_filename);
         return 2;
     }
 
@@ -881,7 +899,7 @@ void runCycle(CPU* lc3cpu) {
 
             lc3cpu->MAR = lc3cpu->PC + PCoffset9;
             lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
-            lc3cpu->MAR = lc3cpu->memory[lc3cpu->MDR];
+            lc3cpu->MAR = lc3cpu->MDR;
             lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
             lc3cpu->regfile[DR] = lc3cpu->MDR;
 
@@ -916,7 +934,7 @@ void runCycle(CPU* lc3cpu) {
         // STI
         case 11:
             lc3cpu->MAR = lc3cpu->PC + PCoffset9;
-            lc3cpu->MDR = lc3cpu->regfile[DR];
+            lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
             lc3cpu->MAR = lc3cpu->MDR;
             lc3cpu->MDR = lc3cpu->regfile[DR];
             lc3cpu->memory[lc3cpu->MAR] = lc3cpu->MDR;

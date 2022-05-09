@@ -1,0 +1,14 @@
+// Symbol table
+// Scope level 0:
+//	Symbol Name       Page Address
+//	----------------  ------------
+//	ROWLOOP           3006
+//	COLLOOP           300D
+//	FILL0             3013
+//	ROW_END           3018
+//	STOP              301D
+//	CHAR0             301E
+//	CHAR1             301F
+//	CHAR              3020
+//	FONT_DATA         3021
+
