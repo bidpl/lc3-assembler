@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
     char command[BUFF_LEN];
     char option1[BUFF_LEN];
     char option2[BUFF_LEN];
-    char prevCommand[4];
+    int numRead;
 
     printf("\n\n===================================\nLC-3 Simulator by Binh-Minh Nguyen \nUIUC ECE220 SP22 Honors Project\nCompiled: %s %s\n===================================\n\n\n", __DATE__, __TIME__);
 
@@ -38,7 +38,12 @@ int main(int argc, char *argv[]) {
         printf("LC3sim> ");
         gets(readBuff);
 
-        int numRead = sscanf(readBuff, "%s %s %s", command, option1, option2);
+        // Reuse prev command if empty input (only overwrite if not empty)
+        if(readBuff[0] != '\0') {
+            numRead = sscanf(readBuff, "%s %s %s", command, option1, option2);
+        } else {
+            printf("reuse last command\n");
+        }
 
         if(strcmp(command, "file") == 0 || strcmp(command, "f") == 0) {
             load_binary(lc3cpu, option1);
@@ -58,7 +63,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     lc3cpu->bIndex = 0;
-                }else {
+                } else {
                     __UINT16_TYPE__ memAddr = get_sym_addr(lc3cpu, option1);
 
                     if(memAddr == 0) {
@@ -79,7 +84,18 @@ int main(int argc, char *argv[]) {
             __UINT16_TYPE__ bPoint;
             do {
                 runCycle(lc3cpu);
-            } while( !(bPoint = checkBreakPt(lc3cpu)) );
+                // Debug only
+                // printregs(lc3cpu);
+                
+                // Keep on running while MCR is active and not a breakpt
+            } while( !(bPoint = checkBreakPt(lc3cpu)) && (lc3cpu->memory[0xFFFE] & 0x8000));
+
+            // If Halted
+            if(!(lc3cpu->memory[0xFFFE] & 0x8000)) {
+                printf("Machine Halted \n");
+                continue;
+            }
+
             printf("Execution hit breakpoint: x%04hX\n", bPoint);
             printregs(lc3cpu);
             continue;
@@ -241,6 +257,9 @@ CPU * create_CPU(){
     }
     newCPU->numSymbols = 0;
     newCPU->bIndex = 0;
+
+    // Set MCR[15] to active
+    newCPU->memory[0xFFFE] = 0x8000;
 
     return newCPU;
 }
@@ -491,7 +510,7 @@ char* get_addr_sym(CPU* lc3cpu, __UINT64_TYPE__ addr) {
  */
 
 void dumpMem(CPU* lc3cpu, __UINT16_TYPE__ addr) {
-    printf("x%04X: x%04X\n", addr, lc3cpu->memory[addr]);
+    printf("x%04hX: x%04hX\n", addr, lc3cpu->memory[addr]);
 }
 
 
@@ -622,7 +641,7 @@ void print_instr(CPU* lc3cpu, __UINT16_TYPE__ memAddr) {
     if(opcode == 0b0100) {
         // If JSR
         if(instruction & 0x0800) {
-            __INT16_TYPE__ PCoffset11 = instruction & 0x1FF;
+            __INT16_TYPE__ PCoffset11 = instruction & 0x7FF;
             // SEXT PCoffset11
             if(instruction & 0x400) {
                 PCoffset11 |= 0xF800;
@@ -744,8 +763,8 @@ void runCycle(CPU* lc3cpu) {
 
     __INT16_TYPE__ PCoffset11 = lc3cpu->IR & 0x7FF;
     // SEXT PCoffset11
-    if(PCoffset9 & 0x400) {
-        PCoffset9 |= 0xFFFF << 11; // Fill upper bits with ones
+    if(PCoffset11 & 0x400) {
+        PCoffset11 |= 0xFFFF << 11; // Fill upper bits with ones
     }
 
     __INT16_TYPE__ offset6 = lc3cpu->IR & 0x3F;
@@ -816,13 +835,17 @@ void runCycle(CPU* lc3cpu) {
             // TODO implement this, not doing yet since no OS
             __UINT8_TYPE__ trapV = lc3cpu->IR & 0xFF;
             if(trapV == 0x20) {
-                lc3cpu->regfile[0] = getchar(); // Read character
-                
+                char readBuff[BUFF_LEN];
 
-                // Flush buffer, should just be \n
-                char tempBuff[255];
-                gets(tempBuff);
-                
+                gets(readBuff);
+
+                unsigned char tempChar;
+
+                sscanf(readBuff, "%c", &tempChar); // Read character
+
+                lc3cpu->regfile[0] = tempChar;
+
+                // No overflow protection
                 
             } else if (trapV == 0x21) {
                 printf("%c", lc3cpu->regfile[0]);
@@ -835,6 +858,9 @@ void runCycle(CPU* lc3cpu) {
                 }
 
                 printf("%s", string);
+            } else if(trapV == 0x25) {
+                // Clear clock bit to stop clock
+                lc3cpu->memory[0xFFFE] &= 0x7FFF;
             }
             break;}
         // LD
@@ -866,7 +892,7 @@ void runCycle(CPU* lc3cpu) {
         case 6:
             lc3cpu->MAR = lc3cpu->regfile[((lc3cpu->IR >> 6) & 0b111) + offset6];
             lc3cpu->MDR = lc3cpu->memory[lc3cpu->MAR];
-            lc3cpu->regfile[DR] = lc3cpu->MAR;
+            lc3cpu->regfile[DR] = lc3cpu->MDR;
 
             // Set CC
             setCC(lc3cpu);
@@ -878,7 +904,7 @@ void runCycle(CPU* lc3cpu) {
             break;
         // NOT
         case 9:
-            lc3cpu->regfile[DR] = ! (lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111]);
+            lc3cpu->regfile[DR] = ~ (lc3cpu->regfile[(lc3cpu->IR >> 6) & 0b111]);
             setCC(lc3cpu);
             break;
         // ST
